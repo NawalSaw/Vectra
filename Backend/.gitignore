@@ -1,0 +1,38 @@
+# --- Virtual Environments ---
+# Ignore local environment folders where packages are installed
+.venv/
+venv/
+env/
+ENV/
+
+# --- Environment Variables ---
+# Crucial for security: never commit your secret keys or DB credentials
+.env
+.env.*
+!.env.example
+
+# --- Python Cache & Bytecode ---
+# Ignore compiled Python files and cache folders
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Database Files ---
+# If using SQLite locally, ignore the actual database file
+*.db
+*.sqlite3
+
+# --- Editor/OS Specific ---
+# VS Code, PyCharm, and OS-generated files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Distribution / Build ---
+dist/
+build/
+*.egg-info/
