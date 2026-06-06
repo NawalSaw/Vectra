@@ -10,3 +10,4 @@ supabase==2.31.0
 svix==1.95.1
 python-multipart==0.0.32
 starlette==1.2.1
+PyJWT==2.12.1

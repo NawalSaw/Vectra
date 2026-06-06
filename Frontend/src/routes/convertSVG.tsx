@@ -3,8 +3,6 @@ import { Dropzone } from "@/components/converter/Dropzone";
 import { FileList } from "@/components/converter/FileList";
 import { ControlsPanel } from "@/components/converter/ControlsPanel";
 import { PreviewCanvas } from "@/components/converter/PreviewCanvas";
-import { ArrowLeft, Sparkles, Zap } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import { authStateFn } from "@/integrations/authStateFn";
 
 export const Route = createFileRoute("/convertSVG")({

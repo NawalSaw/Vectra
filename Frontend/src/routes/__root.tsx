@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ClerkProvider, useUser } from '@clerk/tanstack-react-start'
+import { ClerkProvider } from '@clerk/tanstack-react-start'
 import { useRouterState } from "@tanstack/react-router";
 
 import {
@@ -74,9 +74,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 function UserHydrator() {
-  const { isLoaded, isSignedIn, user } = useUser();
-
-  useCurrentUser(isLoaded && isSignedIn ? user.id : "");
+  useCurrentUser();
 
   return null;
 }

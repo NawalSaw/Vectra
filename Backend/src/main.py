@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="Image Service API", description="API for generating images and converting to SVG")
 
 FRONTEND_ALLOWED_ORIGINS = os.getenv("FRONTEND_URL")
+print(FRONTEND_ALLOWED_ORIGINS)
 
 # MUST COME BEFORE ROUTES
 app.add_middleware(

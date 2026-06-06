@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 class ImageGenerationRequest(BaseModel):
     prompt: str
     model: str
+    request_id: str
 
     negative_prompt: Optional[str] = None
 
@@ -20,8 +21,7 @@ class ImageGenerationRequest(BaseModel):
     seed: Optional[int] = None
 
     steps: Optional[int] = None
-    clerk_user_id: str = None
-    desired_format: str = "jpg"
+
 
 class ImageGenerationResponse(BaseModel):
     success: bool
@@ -41,7 +41,6 @@ class CleanupResponse(BaseModel):
     public_id: Optional[str] = None
 
 class GetSVGConversionRequest(BaseModel):
-    clerk_user_id: str
     page: int
     limit: int
 
@@ -54,7 +53,6 @@ class GetSVGConversionRequest(BaseModel):
     sort_order: str 
 
 class GetGeneratedImagesRequest(BaseModel):
-    clerk_user_id: str
     page: int
     limit: int
 

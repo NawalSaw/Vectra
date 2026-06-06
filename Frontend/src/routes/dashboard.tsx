@@ -206,16 +206,15 @@ export const Route = createFileRoute("/dashboard")({
 
 function DashboardPage() {
   const currentUser = useUserStore((state) => state.user);
-  const userId = currentUser?.clerk_user_id || "";
 
   const PAGE = 1;
   const LIMIT = 10;
 
   const { mutateAsync: cleanupFile } = useFileCleanup();
-  const { mutateAsync: cleanupMutation } = useCleanup(cleanupFile, userId, PAGE, LIMIT)
+  const { mutateAsync: cleanupMutation } = useCleanup(cleanupFile, PAGE, LIMIT)
 
-  const { data: userImages, isLoading: isLoadingImages } = useGetImageGenerations(userId, PAGE, LIMIT)
-  const { data: userConversions, isLoading: isLoadingConversions } = useGetSVGConversions(userId, PAGE, LIMIT)
+  const { data: userImages, isLoading: isLoadingImages } = useGetImageGenerations(PAGE, LIMIT)
+  const { data: userConversions, isLoading: isLoadingConversions } = useGetSVGConversions(PAGE, LIMIT)
 
   const conversions = userConversions?.data || [];
   const imagesData = userImages?.data || [];

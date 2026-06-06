@@ -17,7 +17,6 @@ export interface VectorizeOptions {
         max_iterations: number;
         splice_threshold: number;
         path_precision: number;
-        clerk_user_id: string;
 }
 
 export const defaultOptions: VectorizeOptions = {
@@ -33,7 +32,6 @@ export const defaultOptions: VectorizeOptions = {
   max_iterations: 10,
   splice_threshold: 45,
   length_threshold: 4.0,
-  clerk_user_id: "",
 };
 
 // Helper: composite image over white background

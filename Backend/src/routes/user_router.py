@@ -1,7 +1,8 @@
 import os
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException
 from svix.webhooks import Webhook, WebhookVerificationError
 
+from src.utils.get_current_clerk_user import get_current_clerk_user
 from src.classes.user_classes import UserResponse
 from src.utils.webhook.extract_data import extract_user_data
 from src.utils.supabase.client import supabase
@@ -88,7 +89,7 @@ async def clerk_webhook(request: Request):
 
 @router.get('/me', response_model=UserResponse)
 async def get_current_user(
-    clerk_user_id: str
+    clerk_user_id: str = Depends(get_current_clerk_user)
 ):
 
     result = (

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -97,11 +97,8 @@ export const Route = createFileRoute("/assets")({
 });
 
 function AssetsPage() {
-  const currentUser = useUserStore((state) => state.user);
   const queryClient = useQueryClient();
-  
-  const userId = currentUser?.clerk_user_id || "";
-  
+    
   let { q } = Route.useSearch();
   const { mutateAsync: cleanupFile, isPending: isDeleting } = useFileCleanup();
 
@@ -141,13 +138,13 @@ function AssetsPage() {
     data: generatedImages,
     isLoading: imagesLoading,
     isFetching: imagesFetching,
-  } = useGetImageGenerations(userId, imagePage, imageLimit, imageQuery);
+  } = useGetImageGenerations(imagePage, imageLimit, imageQuery);
 
   const {
     data: svgConversions,
     isLoading: svgLoading,
     isFetching: svgFetching,
-  } = useGetSVGConversions(userId, svgPage, svgLimit, svgQuery);
+  } = useGetSVGConversions(svgPage, svgLimit, svgQuery);
 
   async function handleDelete(url: string) {
     const result = await cleanupFile(url);

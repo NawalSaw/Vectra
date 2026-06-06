@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 
+from src.utils.get_current_clerk_user import get_current_clerk_user
 from src.classes.image_classes import CleanupResponse, GetGeneratedImagesRequest, GetSVGConversionRequest, ImageGenerationRequest, ImageGenerationResponse, SVGConversionResponse
 from src.controllers.image_controller import generate_image, convert_to_svg, cleanup_file, check_health, get_svg_conversions, get_generated_images
 
 router = APIRouter(prefix="/image", tags=["Image"])
 
 @router.post("/generate-image", response_model=ImageGenerationResponse)
-async def image_generation(request: ImageGenerationRequest):
-    return await generate_image(request)
+async def image_generation(request: ImageGenerationRequest, clerk_user_id: str = Depends(get_current_clerk_user)):
+    return await generate_image(request, clerk_user_id)
 
 @router.post("/convert-to-svg", response_model=SVGConversionResponse)
 async def svg_conversion(
@@ -23,7 +24,7 @@ async def svg_conversion(
     max_iterations: int = Form(10),
     splice_threshold: int = Form(45),
     path_precision: int = Form(3),
-    clerk_user_id: str = Form(""),
+    clerk_user_id: str = Depends(get_current_clerk_user)
 ):
     return await convert_to_svg(
         file=file,
@@ -42,18 +43,18 @@ async def svg_conversion(
     )
 
 @router.delete("/cleanup", response_model=CleanupResponse)
-async def cleanup(cloudinary_url: str):
-    return await cleanup_file(cloudinary_url)
+async def cleanup(cloudinary_url: str, clerk_user_id: str = Depends(get_current_clerk_user)):
+    return await cleanup_file(cloudinary_url, clerk_user_id)
 
 @router.get("/svg-conversions")
-async def get_svg_conversions_endpoint(request: GetSVGConversionRequest = Depends()):
-    return await get_svg_conversions(request)
+async def get_svg_conversions_endpoint(request: GetSVGConversionRequest = Depends(), clerk_user_id: str = Depends(get_current_clerk_user)):
+    return await get_svg_conversions(request, clerk_user_id)
 
 @router.get("/generated-images")
 async def get_images_endpoint(
-    request: GetGeneratedImagesRequest = Depends()
+    request: GetGeneratedImagesRequest = Depends(), clerk_user_id: str = Depends(get_current_clerk_user)
 ):
-    return await get_generated_images(request)
+    return await get_generated_images(request, clerk_user_id)
 
 @router.get("/health")
 async def health_check():

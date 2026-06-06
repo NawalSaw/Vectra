@@ -8,6 +8,7 @@ import type {
   ApiError,
 } from '@/lib/api-types';
 import { VectorizeOptions } from '@/lib/vectorize';
+import { useAuth } from '@clerk/tanstack-react-start';
 
 export type SortOrder = "asc" | "desc";
 
@@ -64,6 +65,7 @@ async function apiRequest<T>(
   return response.json();
 }
 
+// helper fn
 export function makePayload(request: ImageGenerationRequest) {
   console.log(request.model);
   if (request.model === 'flux') {
@@ -72,10 +74,11 @@ export function makePayload(request: ImageGenerationRequest) {
       "prompt": request.prompt,
       "model": request.model,
       "steps": request.steps,
-      "clerk_user_id": request.clerk_user_id
+      "request_id": Math.random().toString(36).slice(2),
     };
   } else {
     return {
+    "request_id": Math.random().toString(36).slice(2),
     "prompt": request.prompt,
     "model": request.model,
     "negative_prompt": request.negative_prompt,
@@ -86,43 +89,11 @@ export function makePayload(request: ImageGenerationRequest) {
     "strength": request.strength,
     "seed": request.seed,
     "image_b64": request.image_b64,
-    "clerk_user_id": request.clerk_user_id,
   };
   }
 }
-
-/**
- * Hook for generating images
- */
-export function useImageGeneration() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (request: ImageGenerationRequest): Promise<ImageGenerationResponse> => {
-      console.log(request);
-      return apiRequest<ImageGenerationResponse>(
-        API_ENDPOINTS.GENERATE_IMAGE,
-        {
-          method: 'POST',
-          body: JSON.stringify(request),
-        }
-      );
-    },
-    onSuccess: () => {
-      // Invalidate related queries if needed
-      queryClient.invalidateQueries({ queryKey: ['image-generation'] });
-    },
-  });
-}
-
-/**
- * Hook for converting images to SVG
- */
-
-// helper fn
-function makeSVGConversionPayload(options: VectorizeOptions) {
+export function makeSVGConversionPayload(options: VectorizeOptions) {
   const formData = new FormData();
-  formData.append("clerk_user_id", options.clerk_user_id);
   formData.append("file", options.file);
   formData.append("colormode", options.colormode);
   formData.append("hierarchical", options.hierarchical);
@@ -171,16 +142,60 @@ function makeSVGConversionPayload(options: VectorizeOptions) {
   return formData;
 }
 
-export function useSVGConversion() {
-  const queryClient = useQueryClient();
+/**
+ * Hook for generating images
+ */
+export function useImageGeneration() {
+  const { getToken } = useAuth();
 
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (request: ImageGenerationRequest): Promise<ImageGenerationResponse> => {
+      const token = await getToken();
+      const payload = makePayload(request)
+      const url = `${API_BASE_URL}${API_ENDPOINTS.GENERATE_IMAGE}`
+      console.log(JSON.stringify(payload))
+      const response = await fetch(
+        url,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        }
+      );
+      return response.json();
+    },
+    onSuccess: () => {
+      // Invalidate related queries if needed
+      queryClient.invalidateQueries({ queryKey: ['image-generation'] });
+    },
+  });
+}
+
+/**
+ * Hook for converting images to SVG
+ */
+
+export function useSVGConversion() {
+  const { getToken } = useAuth();
+  
+  const queryClient = useQueryClient();
+  
   return useMutation({
     mutationFn: async (options: VectorizeOptions): Promise<SVGConversionResponse> => {
       const url = `${API_BASE_URL}${API_ENDPOINTS.CONVERT_TO_SVG}`;
+      const token = await getToken();
       const payload = makeSVGConversionPayload(options);
       const response = await fetch(url, {
         method: 'POST',
         body: payload,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
       if (!response.ok) {
@@ -216,14 +231,20 @@ export function useHealthCheck(enabled = true) {
  * Hook for cleaning up files
  */
 export function useFileCleanup() {
+  const { getToken } = useAuth();
+  
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (url: string) => {
+      const token = await getToken();
       const response = await fetch(
         `${API_BASE_URL}${API_ENDPOINTS.CLEANUP_FILE}?cloudinary_url=${encodeURIComponent(url)}`,
         {
           method: "DELETE",
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
         }
       );
       
@@ -239,60 +260,25 @@ export function useFileCleanup() {
   });
 }
 
-/**
- * Combined hook for all image generation operations
- * Provides a single hook with all methods for convenience
- */
-export function useImageGenerationAPI() {
-  const generateImage = useImageGeneration();
-  const convertToSVG = useSVGConversion();
-  const healthCheck = useHealthCheck();
-  const cleanupFile = useFileCleanup();
-
-  return {
-    // Methods
-    generateImage: generateImage.mutateAsync,
-    convertToSVG: convertToSVG.mutateAsync,
-    cleanupFile: cleanupFile.mutateAsync,
-    
-    // States
-    isGenerating: generateImage.isPending,
-    isConverting: convertToSVG.isPending,
-    isCleaning: cleanupFile.isPending,
-    
-    // Errors
-    generationError: generateImage.error,
-    conversionError: convertToSVG.error,
-    cleanupError: cleanupFile.error,
-    
-    // Reset functions
-    resetGeneration: generateImage.reset,
-    resetConversion: convertToSVG.reset,
-    resetCleanup: cleanupFile.reset,
-  };
-}
-
 export function useGetSVGConversions(
-  userId: string,
   PAGE: number,
   LIMIT: number,
   filters: SVGConversionsQuery = {}
 ) {
+  const { getToken } = useAuth();
+  
   return useQuery({
   queryKey: [
     "svg_conversions",
-    userId,
     PAGE,
     LIMIT,
     filters,
   ],
 
-  enabled: !!userId,
+  enabled: true,
 
   queryFn: async () => {
     const params = new URLSearchParams({
-      clerk_user_id: userId!,
-
       page: PAGE.toString(),
       limit: LIMIT.toString(),
 
@@ -306,7 +292,12 @@ export function useGetSVGConversions(
     if (filters.hierarchical) params.set("hierarchical", filters.hierarchical);
 
     const response = await fetch(
-      `${API_BASE_URL}${API_ENDPOINTS.GET_SVG_CONVERSIONS}?${params.toString()}`
+      `${API_BASE_URL}${API_ENDPOINTS.GET_SVG_CONVERSIONS}?${params.toString()}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${await getToken()}`,
+        },
+      }
     );
 
     if (!response.ok) {
@@ -324,26 +315,24 @@ export function useGetSVGConversions(
 }
 
 export function useGetImageGenerations(
-  userId: string,
   PAGE: number,
   LIMIT: number,
   filters: GeneratedImagesQuery = {}
 ) {
+  const { getToken } = useAuth();
+  
   return useQuery({
     queryKey: [
       "image_generations",
-      userId,
       PAGE,
       LIMIT,
       filters,
     ],
   
-    enabled: !!userId,
+    enabled: true,
   
     queryFn: async () => {
       const params = new URLSearchParams({
-        clerk_user_id: userId!,
-  
         page: PAGE.toString(),
         limit: LIMIT.toString(),
   
@@ -355,7 +344,12 @@ export function useGetImageGenerations(
       if (filters.model) params.set("model", filters.model);
   
       const response = await fetch(
-        `${API_BASE_URL}${API_ENDPOINTS.GET_GENERATED_IMAGES}?${params.toString()}`
+        `${API_BASE_URL}${API_ENDPOINTS.GET_GENERATED_IMAGES}?${params.toString()}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${await getToken()}`,
+          },
+        }
       );
   
       if (!response.ok) {
@@ -371,7 +365,7 @@ export function useGetImageGenerations(
   });
 }
 
-export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ success: boolean }>, userId: string, PAGE: number, LIMIT: number) {
+export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ success: boolean }>, PAGE: number, LIMIT: number) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -419,7 +413,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       const previousImages =
         queryClient.getQueryData<any>([
             "generated_images",
-            userId,
             PAGE,
             LIMIT,
           ]);
@@ -427,7 +420,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       const previousConversions =
         queryClient.getQueryData<any>([
           "svg_conversions",
-          userId,
           PAGE,
           LIMIT,
         ]);
@@ -437,7 +429,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.setQueryData(
         [
           "generated_images",
-          userId,
           PAGE,
           LIMIT,
         ],
@@ -469,7 +460,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.setQueryData(
         [
           "svg_conversions",
-          userId,
           PAGE,
           LIMIT,
         ],
@@ -514,7 +504,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.setQueryData(
         [
           "generated_images",
-          userId,
           PAGE,
           LIMIT,
         ],
@@ -524,7 +513,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.setQueryData(
         [
           "svg_conversions",
-          userId,
           PAGE,
           LIMIT,
         ],
@@ -540,7 +528,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.invalidateQueries({
         queryKey: [
           "generated_images",
-          userId,
           PAGE,
           LIMIT,
         ],
@@ -549,7 +536,6 @@ export function useCleanup(cleanupFile: (cloudinaryUrl: string) => Promise<{ suc
       queryClient.invalidateQueries({
         queryKey: [
           "svg_conversions",
-          userId,
           PAGE,
           LIMIT,
         ],

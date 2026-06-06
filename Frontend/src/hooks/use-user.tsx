@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { API_BASE_URL, API_ENDPOINTS } from '@/lib/api-config';
 import { ApiError, type CurrentUser } from "@/lib/api-types";
 import { useUserStore } from "@/lib/user-store";
+import { useAuth } from "@clerk/tanstack-react-start";
 
 // Base API client
 async function apiRequest<T>(
@@ -31,33 +32,43 @@ async function apiRequest<T>(
   return response.json();
 }
 
-export const useCurrentUser = (userId: string) => {
+export const useCurrentUser = () => {
   const setUser = useUserStore((state) => state.setUser);
   const setClerkUserId = useUserStore((state) => state.setClerkUserId);
   const setLoading = useUserStore((state) => state.setLoading);
   const setError = useUserStore((state) => state.setError);
   const clearUser = useUserStore((state) => state.clearUser);
 
+  const { getToken } = useAuth();
+  
   const query = useQuery<CurrentUser>({
-    queryKey: ["current-user", userId],
-    enabled: !!userId,
+    queryKey: ["current-user"],
+    enabled: true,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
-    queryFn: () =>
-      apiRequest<CurrentUser>(
-        `${API_ENDPOINTS.GET_CURRENT_USER}?clerk_user_id=${userId}`
-      ),
+    queryFn: async () => {
+      const token = await getToken();
+      return apiRequest<CurrentUser>(
+        `${API_ENDPOINTS.GET_CURRENT_USER}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        }
+      );
+    },
 });
 
   useEffect(() => {
-    if (!userId) {
+    if (!query.data) {
       clearUser();
       return;
     }
 
-    setClerkUserId(userId);
-  }, [clearUser, setClerkUserId, userId]);
+    setClerkUserId(query.data.clerk_user_id);
+  }, [clearUser, setClerkUserId, query.data]);
 
   useEffect(() => {
     setLoading(query.isLoading || query.isFetching);

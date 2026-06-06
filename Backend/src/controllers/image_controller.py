@@ -1,11 +1,12 @@
-from fastapi import File, Form, HTTPException, UploadFile, Query
+from fastapi import Depends, File, Form, HTTPException, UploadFile, Query
 from typing import Optional
 import os
 import tempfile
 import uuid
 import dotenv
+import re
 
-from src.utils.deduct_credit import deduct_credits
+from src.utils.get_current_clerk_user import get_current_clerk_user
 from src.utils.supabase.client import supabase
 from src.utils.cloudflare_img_client import CloudflareImageClient
 from src.utils.cloudflare_img_req import CloudflareImageRequest
@@ -20,99 +21,291 @@ dotenv.load_dotenv()
 image_client = CloudflareImageClient()
 vectorizer = Vectorizer()
 
-async def generate_image(request: ImageGenerationRequest):
-    """
-    Generate an image using Cloudflare's image generation API and upload to Cloudinary
-    """
+# async def generate_image(request: ImageGenerationRequest):
+#     """
+#     Generate an image using Cloudflare's image generation API and upload to Cloudinary
+#     """
+#     cloudinary_public_id = None
+    
+#     try:
+#         remaining_credits = deduct_credits(request.clerk_user_id, amount=10)
+#         # Generate unique filename
+#         image_id = str(uuid.uuid4())
+#         # Create image generation request
+#         img_request = CloudflareImageRequest(
+#             prompt=request.prompt,
+#             model=request.model,
+#             negative_prompt=request.negative_prompt,
+
+#             width=request.width,
+#             height=request.height,
+#             num_steps=request.num_steps,
+
+#             strength=request.strength,
+#             guidance=request.guidance,
+#             image_b64=request.image_b64,
+#             seed=request.seed,
+#             steps=request.steps,
+#         )
+        
+#         # Generate image
+#         result = image_client.generate_image(
+#             request_data=img_request,
+#             output_path=None  # Don't save locally
+#         )
+#         print("Result:", result)
+#         if isinstance(result, dict) and 'status_code' in result:
+#             if result['status_code'] == 201:
+#                 # Get image bytes from result
+#                 image_bytes = result["data"]['image_bytes']
+
+#                 # Upload to Cloudinary
+#                 cloudinary_result = upload_to_cloudinary(
+#                     file_data=image_bytes,
+#                     public_id=f"generated/{image_id}",
+#                     resource_type="image"
+#                 )
+
+#                 # Save metadata to Supabase
+#                 supabase.table("generated_images").insert({
+#                     "id": image_id,
+#                     "prompt": request.prompt,
+#                     "model": request.model,
+#                     "cloudinary_url": cloudinary_result.get("secure_url"),
+#                     "cloudinary_public_id": cloudinary_result.get("public_id"),
+#                     "width": request.width,
+#                     "height": request.height,
+#                     "seed": result["data"]["seed"],
+#                     "size_bytes": len(image_bytes),
+#                     "format": request.desired_format or "png",
+#                     "clerk_user_id": request.clerk_user_id
+#                 }).execute()
+
+                
+
+#                 return ImageGenerationResponse(
+#                     success=True,
+#                     message="Image generated and uploaded successfully",
+#                     data={
+#                         "image_id": image_id,
+#                         "cloudinary_url": cloudinary_result.get('secure_url'),
+#                         "cloudinary_public_id": cloudinary_result.get('public_id'),
+#                         "size_bytes": len(image_bytes),
+#                         "model": request.model,
+#                         "prompt": request.prompt,
+#                         "seed": result["data"]["seed"],
+#                         "height": request.height,
+#                         "width": request.width,
+#                         "credits_remaining": remaining_credits
+#                     }
+#                 )
+#             else:
+#                 return ImageGenerationResponse(
+#                     success=False,
+#                     message="Image generation failed",
+#                     error=result.get('message', 'Unknown error')
+#                 )
+#         else:
+#             return ImageGenerationResponse(
+#                 success=False,
+#                 message="Unexpected response format",
+#                 error="Invalid response from image generation service"
+#             )
+            
+#     except Exception as e:
+#         print(f"Error in generate_image: {e}")
+#         return ImageGenerationResponse(
+#             success=False,
+#             message="Internal server error",
+#             error=str(e)
+#         )
+
+IMAGE_COST = 10
+
+async def generate_image(request, clerk_user_id):
+
+    image_id = str(uuid.uuid4())
+
+    cloudinary_public_id = None
+    credits_reserved = False
+
     try:
-        # Generate unique filename
-        image_id = str(uuid.uuid4())
-        # Create image generation request
+        # --------------------------------------------------
+        # Idempotency Check
+        # --------------------------------------------------
+
+        existing = (
+            supabase.table("generated_images")
+            .select("*")
+            .eq("request_id", request.request_id)
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            image = existing.data[0]
+
+            return ImageGenerationResponse(
+                success=True,
+                message="Image already generated",
+                data=image
+            )
+
+        # --------------------------------------------------
+        # Reserve Credits
+        # --------------------------------------------------
+
+        reserve_response = supabase.rpc(
+            "reserve_credits",
+            {
+                "p_clerk_user_id": clerk_user_id,
+                "p_amount": IMAGE_COST
+            }
+        ).execute()
+
+        remaining_credits = reserve_response.data
+        credits_reserved = True
+
+        # --------------------------------------------------
+        # Build Cloudflare Request
+        # --------------------------------------------------
+
         img_request = CloudflareImageRequest(
             prompt=request.prompt,
             model=request.model,
             negative_prompt=request.negative_prompt,
-
             width=request.width,
             height=request.height,
             num_steps=request.num_steps,
-
             strength=request.strength,
             guidance=request.guidance,
             image_b64=request.image_b64,
             seed=request.seed,
             steps=request.steps,
         )
-        
-        # Generate image
+
+        # --------------------------------------------------
+        # Generate Image
+        # --------------------------------------------------
+
         result = image_client.generate_image(
             request_data=img_request,
-            output_path=None  # Don't save locally
+            output_path=None
         )
-        print("Result:", result)
-        if isinstance(result, dict) and 'status_code' in result:
-            if result['status_code'] == 201:
-                # Get image bytes from result
-                image_bytes = result["data"]['image_bytes']
 
-                # Upload to Cloudinary
-                cloudinary_result = upload_to_cloudinary(
-                    file_data=image_bytes,
-                    public_id=f"generated/{image_id}",
-                    resource_type="image"
-                )
-
-                # Save metadata to Supabase
-                supabase.table("generated_images").insert({
-                    "id": image_id,
-                    "prompt": request.prompt,
-                    "model": request.model,
-                    "cloudinary_url": cloudinary_result.get("secure_url"),
-                    "cloudinary_public_id": cloudinary_result.get("public_id"),
-                    "width": request.width,
-                    "height": request.height,
-                    "seed": result["data"]["seed"],
-                    "size_bytes": len(image_bytes),
-                    "format": request.desired_format or "png",
-                    "clerk_user_id": request.clerk_user_id
-                }).execute()
-
-                remaining_credits = deduct_credits(request.clerk_user_id, amount=10)
-
-                return ImageGenerationResponse(
-                    success=True,
-                    message="Image generated and uploaded successfully",
-                    data={
-                        "image_id": image_id,
-                        "cloudinary_url": cloudinary_result.get('secure_url'),
-                        "cloudinary_public_id": cloudinary_result.get('public_id'),
-                        "size_bytes": len(image_bytes),
-                        "model": request.model,
-                        "prompt": request.prompt,
-                        "seed": result["data"]["seed"],
-                        "height": request.height,
-                        "width": request.width,
-                        "credits_remaining": remaining_credits
-                    }
-                )
-            else:
-                return ImageGenerationResponse(
-                    success=False,
-                    message="Image generation failed",
-                    error=result.get('message', 'Unknown error')
-                )
-        else:
-            return ImageGenerationResponse(
-                success=False,
-                message="Unexpected response format",
-                error="Invalid response from image generation service"
+        if (
+            not isinstance(result, dict)
+            or result.get("status_code") != 201
+        ):
+            raise RuntimeError(
+                result.get("message", "Image generation failed")
+                if isinstance(result, dict)
+                else "Invalid response from generator"
             )
-            
+
+        image_bytes = result["data"]["image_bytes"]
+        generated_seed = result["data"]["seed"]
+
+        # --------------------------------------------------
+        # Upload To Cloudinary
+        # --------------------------------------------------
+
+        cloudinary_result = upload_to_cloudinary(
+            file_data=image_bytes,
+            public_id=f"generated/{image_id}",
+            resource_type="image"
+        )
+
+        cloudinary_public_id = cloudinary_result["public_id"]
+
+
+        # --------------------------------------------------
+        # Save Metadata
+        # --------------------------------------------------
+
+        supabase.table("generated_images").insert({
+            "id": image_id,
+            "request_id": request.request_id,
+            "prompt": request.prompt,
+            "model": request.model,
+            "cloudinary_url": cloudinary_result["secure_url"],
+            "cloudinary_public_id": cloudinary_public_id,
+            "width": request.width,
+            "height": request.height,
+            "seed": generated_seed,
+            "size_bytes": len(image_bytes),
+            "clerk_user_id": clerk_user_id,
+        }).execute()
+
+        # --------------------------------------------------
+        # Finalize Credits
+        # --------------------------------------------------
+
+        supabase.rpc(
+            "consume_reserved_credits",
+            {
+                "p_clerk_user_id": clerk_user_id,
+                "p_amount": IMAGE_COST
+            }
+        ).execute()
+
+
+        # --------------------------------------------------
+        # Success Response
+        # --------------------------------------------------
+
+        return ImageGenerationResponse(
+            success=True,
+            message="Image generated successfully",
+            data={
+                "image_id": image_id,
+                "cloudinary_url": cloudinary_result["secure_url"],
+                "cloudinary_public_id": cloudinary_public_id,
+                "size_bytes": len(image_bytes),
+                "model": request.model,
+                "prompt": request.prompt,
+                "seed": generated_seed,
+                "height": request.height,
+                "width": request.width,
+                "credits_remaining": remaining_credits,
+            }
+        )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        print(f"Error in generate_image: {e}")
+
+        # ------------------------------------------
+        # Cleanup Cloudinary
+        # ------------------------------------------
+
+        if cloudinary_public_id:
+            try:
+                delete_from_cloudinary(cloudinary_public_id)
+            except Exception:
+                pass
+
+        # ------------------------------------------
+        # Refund Credits
+        # ------------------------------------------
+
+        if credits_reserved:
+            try:
+                supabase.rpc(
+                    "refund_reserved_credits",
+                    {
+                        "p_clerk_user_id": clerk_user_id,
+                        "p_amount": IMAGE_COST
+                    }
+                ).execute()
+
+            except Exception:
+                pass
+
         return ImageGenerationResponse(
             success=False,
-            message="Internal server error",
+            message="Image generation failed",
             error=str(e)
         )
 
@@ -129,7 +322,7 @@ async def convert_to_svg(
     max_iterations: int = Form(10),
     splice_threshold: int = Form(45),
     path_precision: int = Form(3),
-    clerk_user_id: str = Form(""),
+    clerk_user_id: str = Depends(get_current_clerk_user)
 ):
     """
     Convert an uploaded image to SVG using vtracer and upload to Cloudinary
@@ -254,8 +447,6 @@ async def convert_to_svg(
             error=str(e)
         )
 
-import re
-
 def extractCloudinaryPublicId(url: str):
     try:
         parts = url.split("/upload/")
@@ -276,7 +467,7 @@ def extractCloudinaryPublicId(url: str):
     except Exception:
         return None
 
-async def cleanup_file(cloudinary_url: str):
+async def cleanup_file(cloudinary_url: str, clerk_user_id: str):
     """
     Delete file from Cloudinary
     and remove related records from Supabase
@@ -326,8 +517,8 @@ async def cleanup_file(cloudinary_url: str):
                 .table("generated_images") \
                 .delete() \
                 .eq(
-                    "cloudinary_url",
-                    cloudinary_url
+                    "clerk_user_id",
+                    clerk_user_id
                 ) \
                 .execute()
 
@@ -342,8 +533,8 @@ async def cleanup_file(cloudinary_url: str):
                 .table("svg_conversions") \
                 .delete() \
                 .eq(
-                    "cloudinary_url",
-                    cloudinary_url
+                    "clerk_user_id",
+                    clerk_user_id
                 ) \
                 .execute()
 
@@ -390,7 +581,8 @@ async def check_health():
     }
 
 async def get_generated_images(
-    request: GetGeneratedImagesRequest
+    request: GetGeneratedImagesRequest,
+    clerk_user_id: str
 ):
 
         """
@@ -408,7 +600,7 @@ async def get_generated_images(
                     "id, prompt, width, height, size_bytes, model, created_at, seed, cloudinary_url",
                     count="exact"
                 )
-                .eq("clerk_user_id", request.clerk_user_id)
+                .eq("clerk_user_id", clerk_user_id)
             )
             # Search filter
             if request.search:
@@ -476,7 +668,8 @@ async def get_generated_images(
             )
 
 async def get_svg_conversions(
-  request: GetSVGConversionRequest
+  request: GetSVGConversionRequest,
+  clerk_user_id: str
 ):
     """
     Get SVG conversions with pagination,
@@ -504,7 +697,7 @@ async def get_svg_conversions(
                 """,
                 count="exact"
             )
-            .eq("clerk_user_id", request.clerk_user_id)
+            .eq("clerk_user_id", clerk_user_id)
         )
         # Search by filename
         if request.search:

@@ -30,8 +30,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { authStateFn } from "@/integrations/authStateFn";
-import { makePayload, useImageGenerationAPI } from "@/hooks/use-image-generation";
-import { useUser } from "@clerk/tanstack-react-start";
+import { makePayload, useImageGeneration } from "@/hooks/use-image-generation";
+import { useAuth, useUser } from "@clerk/tanstack-react-start";
 import { API_BASE_URL, API_ENDPOINTS } from "@/lib/api-config";
 import { useUserStore } from "@/lib/user-store";
 
@@ -116,8 +116,9 @@ function GeneratePage() {
 
   const currentUser = useUserStore((state) => state.user);
   const updateCredits = useUserStore((state) => state.updateCredits);
-
-  const api = useImageGenerationAPI();
+  
+  const { getToken } = useAuth();
+  const { mutateAsync: generateImage, isPending: isGenerating } = useImageGeneration();
 
   const aspectMeta = useMemo(() => ASPECTS.find((a) => a.id === aspect)!, [aspect]);
   const isFluxModel = model === "flux";
@@ -140,8 +141,6 @@ function GeneratePage() {
       try {
         setIsLoadingImages(true);
         const params = new URLSearchParams({
-          clerk_user_id: currentUser?.clerk_user_id || "",
-
           page: page.toString(),
           limit: GENERATED_IMAGES_LIMIT.toString(),
 
@@ -149,8 +148,14 @@ function GeneratePage() {
           sort_order: "desc",
         });
 
+        const token = await getToken();
         const response = await fetch(
-          `${API_BASE_URL}${API_ENDPOINTS.GET_GENERATED_IMAGES}?${params.toString()}`
+          `${API_BASE_URL}${API_ENDPOINTS.GET_GENERATED_IMAGES}?${params.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         if (!response.ok) {
@@ -233,7 +238,7 @@ function GeneratePage() {
     for (let i = 0; i < count; i++) {
       const job = newJobs[i];
       try {
-        const payload = makePayload({
+        const payload = {
           prompt: enhancedPrompt,
           model: model as 'flux' | 'lightning' | 'sdxl',
           negative_prompt: negative || undefined,
@@ -245,11 +250,9 @@ function GeneratePage() {
           seed,
           image_b64: imageB64,
           steps: steps[0],
-          clerk_user_id: currentUser?.clerk_user_id
-        });
+        }
 
-        console.log(payload);
-        const result = await api.generateImage(payload);
+        const result = await generateImage(payload);
 
         if (result.success && result.data) {
           const imageUrl = result.data.cloudinary_url;
@@ -461,8 +464,8 @@ function GeneratePage() {
                       <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse-glow" />
                       {jobs.filter((j) => j.status === "running").length} running
                     </Badge>
-                    <Button onClick={generate} disabled={api.isGenerating} className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-95">
-                      <Sparkles className="h-4 w-4" /> {api.isGenerating ? 'Generating...' : 'Generate'} ({10 * variations[0]})
+                    <Button onClick={generate} disabled={isGenerating} className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-95">
+                      <Sparkles className="h-4 w-4" /> {isGenerating ? 'Generating...' : 'Generate'} ({10 * variations[0]})
                     </Button>
                   </div>
                 </div>

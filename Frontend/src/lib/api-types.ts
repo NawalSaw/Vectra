@@ -26,8 +26,6 @@ export interface ImageGenerationRequest {
   image_b64?: string;
   seed?: number;
   steps?: number;
-  desired_format?: ImageFormat;
-  clerk_user_id?: string;
 }
 
 // Image generation response
@@ -48,7 +46,6 @@ export interface ImageGenerationData {
   seed: number;
   height: number;
   width: number;
-  clerk_user_id: string;
 }
 
 // SVG conversion request
