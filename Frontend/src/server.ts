@@ -43,7 +43,7 @@ img-src
 
 connect-src
   'self'
-  https://vectra-1-m5x2.onrender.com
+  https://vectra-9ng0.onrender.com
   http://localhost:4173
   http://localhost:8000
   http://localhost:8080
